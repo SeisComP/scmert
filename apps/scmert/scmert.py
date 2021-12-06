@@ -64,13 +64,13 @@ class EventClient(Application):
         # older than one hour and are not preferred anywhere.
         limit = Time.GMT() + TimeSpan(-self._cleanup_interval)
 
-        originIDs = self._origin.keys()
+        originIDs = list(self._origin.keys())
         for oid in originIDs:
             if self._origin[oid].creationInfo().creationTime() < limit:
                 del self._origin[oid]
 
-        magnitudeIDs = self._magnitude.keys()
-        for oid in list(magnitudeIDs):
+        magnitudeIDs = list(self._magnitude.keys())
+        for oid in magnitudeIDs:
             if self._magnitude[oid] is None:
                 # This should actually never happen!
                 error("Magnitude %s is None!" % oid)
@@ -79,7 +79,7 @@ class EventClient(Application):
             if self._magnitude[oid].creationInfo().creationTime() < limit:
                 del self._magnitude[oid]
 
-        pickIDs = self._pick.keys()
+        pickIDs = list(self._pick.keys())
         for oid in pickIDs:
             if self._pick[oid].creationInfo().creationTime() < limit:
                 del self._pick[oid]
