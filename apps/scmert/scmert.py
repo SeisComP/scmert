@@ -1,7 +1,7 @@
 #!/usr/bin/env seiscomp-python
 
 import sys
-from scipy.stats import trim_mean
+import math
 from seiscomp.core import Time, TimeSpan
 from seiscomp.client import Application
 from seiscomp.datamodel import Event, Origin, Magnitude, Pick, PublicObject
@@ -325,6 +325,45 @@ class EventClient(Application):
             debug("addObject end")
 
 
+def trimmedMean(values, percent):
+    # Derived from:
+    # https://github.com/SeisComP/common/blob/c2d63ec5226b879380d24f3dde7348ab47519b63/libs/seiscomp/math/mean.cpp#L129
+
+    xl = percent * 0.005
+    n = len(values)
+    k = int(n * xl + 1e-5)
+    cumv = cumw = cumd = 0
+    v = stdev = 0
+    dv = n*[0]
+    weight = n*[0]
+
+    for i, (j, v) in enumerate(sorted(enumerate(values),
+                                      key=lambda a: a[1])):
+        if k + 1 <= i < n - k - 1:
+            weight[j] = 1
+
+        elif i == k or i == n - k - 1:
+            weight[j] = k + 1 - n * xl
+
+        else:
+            weight[j] = 0
+
+        cumv += weight[j] * values[j]
+        cumw += weight[j]
+
+    v = cumv / cumw
+
+    for i in range(n):
+        dv[i] = values[i] - v
+        cumd += weight[i] * dv[i] * dv[i];
+
+    if cumw <= 1:
+        raise Exception("trimmedMean: cumw <= 1")
+
+    stdev = math.sqrt(cumd / (cumw - 1))
+    return v, stdev, dv, weight
+
+
 class EventWatch(EventClient):
 
     def __init__(self, argc, argv):
@@ -338,7 +377,7 @@ class EventWatch(EventClient):
         self.__icSize = 500
         self.__minMag = 5.5
         self.__yamlFile = None
-    
+
     def initConfiguration(self):
         if not seiscomp.client.Application.initConfiguration(self):
             return False
@@ -375,7 +414,7 @@ class EventWatch(EventClient):
 
         self.__me = mert.Me(self.recordStreamURL(), self.__wcSize, self.__icSize, self.__yamlFile)
         return True
-    
+
     def __update(self, evid):
         s = self._state[evid]
         org = s.origin
@@ -395,7 +434,7 @@ class EventWatch(EventClient):
             if mag.type() == "Me":
                 return
 
-        values = []
+        smList = []
 
         for i in range(org.arrivalCount()):
             arr = org.arrival(i)
@@ -421,53 +460,81 @@ class EventWatch(EventClient):
                 loc = wf.locationCode()
                 cha = wf.channelCode()
                 me = self.__me.compute(net, sta, loc, cha, mag.magnitude().value(), org.latitude().value(), org.longitude().value(), org.depth().value(), pick.time().value())
-                values.append(me)
 
                 info("%s.%s.%s.%s Me = %f" % (net, sta, loc, cha, me))
-            
+
             except Exception as e:
                 info("%s.%s.%s.%s Error = %s" % (net, sta, loc, cha, str(e)))
                 continue
 
-            m = seiscomp.datamodel.StationMagnitude.Create()
-            m.setOriginID(org.publicID())
-            q = seiscomp.datamodel.RealQuantity()
-            q.setValue(me)
-            m.setMagnitude(q)
-            m.setType("Me")
+            sm = seiscomp.datamodel.StationMagnitude.Create()
+            sm.setOriginID(org.publicID())
+            m = seiscomp.datamodel.RealQuantity()
+            m.setValue(me)
+            sm.setMagnitude(m)
+            sm.setType("Me")
             wid = seiscomp.datamodel.WaveformStreamID()
             wid.setNetworkCode(net)
             wid.setStationCode(sta)
             wid.setLocationCode(loc)
             wid.setChannelCode(cha)
-            m.setWaveformID(wid)
+            sm.setWaveformID(wid)
+            ci = seiscomp.datamodel.CreationInfo()
+            ci.setCreationTime(seiscomp.core.Time().GMT())
+            ci.setAgencyID(self.agencyID())
+            ci.setAuthor(self.author())
+            sm.setCreationInfo(ci)
 
             try:
                 notifierEnabled = seiscomp.datamodel.Notifier.IsEnabled()
                 seiscomp.datamodel.Notifier.SetEnabled(True)
-                org.add(m)
+                org.add(sm)
 
             finally:
                 seiscomp.datamodel.Notifier.SetEnabled(notifierEnabled)
 
-        if len(values) > 0:
-            trimMe = trim_mean(values, 0.25)
-            m = seiscomp.datamodel.Magnitude.Create()
-            m.setOriginID(org.publicID())
-            q = seiscomp.datamodel.RealQuantity()
-            q.setValue(trimMe)
-            m.setMagnitude(q)
-            m.setType("Me")
-            m.setMethodID("trimmed mean(25)")
-            m.setStationCount(len(values))
+            smList.append(sm)
+
+        if len(smList) > 0:
+            percent = 25 # XXX: hardcoded
+            values = [sm.magnitude().value() for sm in smList]
+            (mean, stdev, residual, weight) = trimmedMean(values, percent)
+            mag = seiscomp.datamodel.Magnitude.Create()
+            mag.setOriginID(org.publicID())
+            m = seiscomp.datamodel.RealQuantity()
+            m.setValue(mean)
+            m.setUncertainty(stdev)
+            mag.setMagnitude(m)
+            mag.setType("Me")
+            mag.setMethodID("trimmed mean(%d)" % percent)
+            mag.setStationCount(sum(w>0 for w in weight))
+            ci = seiscomp.datamodel.CreationInfo()
+            ci.setCreationTime(seiscomp.core.Time().GMT())
+            ci.setAgencyID(self.agencyID())
+            ci.setAuthor(self.author())
+            mag.setCreationInfo(ci)
 
             try:
                 notifierEnabled = seiscomp.datamodel.Notifier.IsEnabled()
                 seiscomp.datamodel.Notifier.SetEnabled(True)
-                org.add(m)
+                org.add(mag)
 
             finally:
                 seiscomp.datamodel.Notifier.SetEnabled(notifierEnabled)
+
+            for i, sm in enumerate(smList):
+                smc = seiscomp.datamodel.StationMagnitudeContribution()
+                smc.setStationMagnitudeID(sm.publicID())
+                smc.setResidual(residual[i])
+                smc.setWeight(weight[i])
+
+                try:
+                    notifierEnabled = seiscomp.datamodel.Notifier.IsEnabled()
+                    seiscomp.datamodel.Notifier.SetEnabled(True)
+                    mag.add(smc)
+
+                finally:
+                    seiscomp.datamodel.Notifier.SetEnabled(notifierEnabled)
 
         msg = seiscomp.datamodel.Notifier.GetMessage(True)
         if msg:
