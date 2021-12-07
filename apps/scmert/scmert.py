@@ -333,7 +333,6 @@ def trimmedMean(values, percent):
     n = len(values)
     k = int(n * xl + 1e-5)
     cumv = cumw = cumd = 0
-    v = stdev = 0
     dv = n*[0]
     weight = n*[0]
 
@@ -357,10 +356,8 @@ def trimmedMean(values, percent):
         dv[i] = values[i] - v
         cumd += weight[i] * dv[i] * dv[i];
 
-    if cumw <= 1:
-        raise Exception("trimmedMean: cumw <= 1")
+    stdev = math.sqrt(cumd / (cumw - 1)) if cumw > 1 else None
 
-    stdev = math.sqrt(cumd / (cumw - 1))
     return v, stdev, dv, weight
 
 
