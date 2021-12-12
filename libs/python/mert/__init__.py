@@ -209,13 +209,23 @@ class Me(object):
         c = inv.get_coordinates("%s.%s.%s.%s" % (net, sta, loc, cha), t)
         dist = obspy.geodetics.locations2degrees(lat, lon, c['latitude'], c['longitude'])
         d = self.__config['freq_dist_table']['distances']
+
         if dist < d[0] or dist > d[-1]:
             raise SkipSegment('distance_deg=%f not in [%f, %f]' % (dist, d[0], d[-1]))
                                 
         dur = get_segment_window_duration(mag, self.__config)
-        wf = self.__wc.get(net, sta, loc, cha, t, t + dur)
+        wf = self.__wc.get(net, sta, loc, cha, t - dur, t + dur)
+
         if wf is None:
             raise SkipSegment('missing waveform')
+
+        if len(wf) != 1:
+            raise SkipSegment("%d traces (probably gaps/overlaps)" % len(wf))
+
+        if wf[0].stats.starttime > t - dur or wf[0].stats.endtime < t + dur:
+            raise SkipSegment('waveform=[%s, %s] not in [%s, %s]' %
+                             (wf[0].stats.starttime, wf[0].stats.endtime,
+                              t - dur, t + dur))
 
         return compute_me(wf, mag, depth, inv, t, dist, self.__config)
 
