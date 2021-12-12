@@ -13,6 +13,10 @@ debug   = seiscomp.logging.info # XXX
 warning = seiscomp.logging.warning
 error   = seiscomp.logging.error
 
+import warnings
+warnings.showwarning = lambda message, category, filename, lineno, file=None, line=None: \
+        warning(warnings.formatwarning(message, category, filename, lineno, line))
+
 
 # Compound event with preferred origin/magnitude on board as well as some relevant state variables
 class EventState:
