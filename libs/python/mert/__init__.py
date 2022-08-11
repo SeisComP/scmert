@@ -47,10 +47,9 @@ class ExportSink(seiscomp.io.ExportSink):
         seiscomp.io.ExportSink.__init__(self)
         self.__fp = fp
 
-    def write(self, data, size):
-        dataBin = data.encode('utf-8')
-        self.__fp.write(dataBin[:size])
-        return size
+    def write(self, data):
+        self.__fp.write(data)
+        return len(data)
 
 class InventoryCache(object):
     def __init__(self, cachesize):
