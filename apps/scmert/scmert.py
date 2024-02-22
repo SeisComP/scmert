@@ -462,7 +462,12 @@ class EventWatch(EventClient):
                 cha = wf.channelCode()
                 me = self.__me.compute(net, sta, loc, cha, mag.magnitude().value(), org.latitude().value(), org.longitude().value(), org.depth().value(), pick.time().value())
 
-                info("%s.%s.%s.%s Me = %f" % (net, sta, loc, cha, me))
+                if me <= 0 or me >= 10:
+                    info("%s.%s.%s.%s Me = %f (invalid)" % (net, sta, loc, cha, me))
+                    continue
+
+                else:
+                    info("%s.%s.%s.%s Me = %f" % (net, sta, loc, cha, me))
 
             except Exception as e:
                 info("%s.%s.%s.%s Error = %s" % (net, sta, loc, cha, str(e)))
